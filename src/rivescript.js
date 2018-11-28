@@ -33,6 +33,7 @@ const inherit_utils = require("./inheritance");
 const { MemorySessionManager } = require("./sessions");
 const JSObjectHandler = require("./lang/javascript");
 const readDir = require("fs-readdir-recursive");
+const MongoClient = require("mongodb").MongoClient;
 
 /**
 RiveScript (hash options)
@@ -188,13 +189,17 @@ const RiveScript = (function() {
 			}
 
 			// Default parameters
-			self._debug     = opts.debug ? opts.debug : false;
-			self._strict    = opts.strict ? opts.strict : true;
-			self._depth     = opts.depth ? parseInt(opts.depth) : 50;
-			self._utf8      = opts.utf8 ? opts.utf8 : false;
-			self._forceCase = opts.forceCase ? opts.forceCase : false;
-			self._onDebug   = opts.onDebug ? opts.onDebug : null;
-			self._concat    = opts.concat ? opts.concat : null;
+			self._debug      = opts.debug ? opts.debug : false;
+			self._strict     = opts.strict ? opts.strict : true;
+			self._depth      = opts.depth ? parseInt(opts.depth) : 50;
+			self._utf8       = opts.utf8 ? opts.utf8 : false;
+			self._forceCase  = opts.forceCase ? opts.forceCase : false;
+			self._onDebug    = opts.onDebug ? opts.onDebug : null;
+			self._concat     = opts.concat ? opts.concat : null;
+
+			// Parameters for mongo connection
+			self._connection = opts.connection ? opts.connection : null;
+			self._botId 	 = opts.botId ? opts.botId : null;
 
 			// UTF-8 punctuation, overridable by the user.
 			self.unicodePunctuation = new RegExp(/[.,!?;:]/g);
@@ -222,6 +227,7 @@ const RiveScript = (function() {
 			// Sub-module helpers.
 			self.parser = new Parser(self);
 			self.brain  = new Brain(self);
+			self.mongodb = 
 
 			// Loading files in will be asynchronous, so we'll need to abe able to
 			// identify when we've finished loading files! This will be an object
@@ -479,6 +485,41 @@ const RiveScript = (function() {
 		}
 
 		/**
+		 * Load for mongodb
+		 */
+		async mongoLoad(){
+			var self = this;
+			return new Promise(function(resolve, reject) {
+				if(self._connection){
+					var url = "mongodb://" + self._connection.user + ":" + self._connection.pass + "@" + self._connection.host + ":" + self._connection.port;
+					MongoClient.connect(url, { useNewUrlParser: true },function(err, client){
+						if(!err){
+							const db = client.db(self._connection.dbname);
+							var collection = db.collection('bots');
+
+							collection.find({uuid: self._botId}).toArray(function(err, result){
+								if(!err){
+									let ok = self.parseMongo(result[0].config);
+									if (ok) {
+										resolve();
+									} else {
+										reject("parser error");
+									}
+								}else{
+									reject(err);
+								}
+							});
+						}else{
+							reject(err);
+						}
+					});					
+				}else{
+					reject('You need to pass connection option on constructor first.');
+				}
+			});
+		}
+
+		/**
 		async loadDirectory (string path)
 
 		Load RiveScript documents from a directory recursively.
@@ -663,6 +704,103 @@ const RiveScript = (function() {
 			}
 
 			return ok;
+		}
+
+		/**
+		 * 
+		 * This function will parse the result from mongo consult
+		 * 
+		 * @param  ast 
+		 */
+		parseMongo(ast){
+			var self = this;
+
+			// Get all of the "begin" type variables: global, var, sub, person, array..
+			for (let type in ast.begin) {
+				let vars = ast.begin[type];
+				if (!ast.begin.hasOwnProperty(type)) {
+					continue;
+				}
+				let internal = `_${type}` // so "global" maps to self._global
+
+				for (let name in vars) {
+					let value = vars[name];
+					if (type === 'sub' || type === 'person') {
+						self[internal + "max"] = Math.max(self[internal + "max"], name.split(" ").length);
+					}
+					if (!vars.hasOwnProperty(name)) {
+						continue;
+					}
+
+					if (value === "<undef>") {
+						delete self[internal][name];
+					} else {
+						self[internal][name] = value;
+					}
+				}
+			}
+
+			// Let the scripts set the debug mode and other internals.
+			if (self._global.debug != null) {
+				self._debug = self._global.debug === "true";
+			}
+			if (self._global.depth != null) {
+				self._depth = parseInt(self._global.depth) || 50;
+			}
+
+			// Consume all the parsed triggers.
+			for (let topic in ast.topics) {
+				let data = ast.topics[topic];
+				if (!ast.topics.hasOwnProperty(topic)) {
+					continue;
+				}
+
+				// Keep a map of the topics that are included/inherited under self topic.
+				if (self._includes[topic] == null) {
+					self._includes[topic] = {};
+				}
+				if (self._inherits[topic] == null) {
+					self._inherits[topic] = {};
+				}
+				utils.extend(self._includes[topic], data.includes);
+				utils.extend(self._inherits[topic], data.inherits);
+
+				// Consume the triggers.
+				if (self._topics[topic] == null) {
+					self._topics[topic] = [];
+				}
+				for (let i = 0, len = data.triggers.length; i < len; i++) {
+					let trigger = data.triggers[i];
+					self._topics[topic].push(trigger);
+
+					// Does this trigger have a %Previous? If so, make a pointer to this
+					// exact trigger in @_thats.
+					if (trigger.previous != null) {
+						// Initialize the @_thats structure first.
+						if (self._thats[topic] == null) {
+							self._thats[topic] = {};
+						}
+						if (self._thats[topic][trigger.trigger] == null) {
+							self._thats[topic][trigger.trigger] = {};
+						}
+						self._thats[topic][trigger.trigger][trigger.previous] = trigger;
+					}
+				}
+			}
+
+			// Load all the parsed objects.
+			let results = [];
+			for (let j = 0, len = ast.objects.length; j < len; j++) {
+				let object = ast.objects[j];
+
+				// Have a handler for it?
+				if (self._handlers[object.language]) {
+					self._objlangs[object.name] = object.language;
+					results.push(self._handlers[object.language].load(object.name, object.code));
+				}
+			}
+
+			return true;
 		}
 
 		/**

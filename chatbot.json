@@ -1,0 +1,49 @@
+{
+	"name": "YouBot",
+	"uuid": "315f9480fe3e1ee03549b8e73a9c5a24",
+	"config": {
+        "begin": {
+            "global": {},
+            "var": {},
+            "sub": {"r": "are", "u": "you"},
+            "person": {},
+            "array": {}
+        },
+        "topics": {
+            "random": {
+            "includes": {},
+                "inherits": {},
+                "triggers": [
+                    {
+                        "trigger": "*",
+                        "reply": ["I don't have replies for this"],
+                        "condition": [],
+                        "redirect": null,
+                        "previous": null
+                    },
+                    {
+                        "trigger": "hello bot",
+                        "reply": ["hello human"],
+                        "condition": [],
+                        "redirect": null,
+                        "previous": null
+                    },
+                    {
+                        "trigger": "how are you",
+                        "reply": ["I'm fine thanks"],
+                        "condition": [],
+                        "redirect": null,
+                        "previous": null
+                    }
+                ]
+            }
+        },
+        "objects": [
+            {
+                "name": "",
+                "language": "",
+                "code": []
+            }
+        ]
+	}	
+}

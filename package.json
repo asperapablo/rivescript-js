@@ -73,7 +73,8 @@
   "dependencies": {
     "babel-loader": "^7.1.4",
     "babel-polyfill": "^6.26.0",
-    "fs-readdir-recursive": "^1.0.0"
+    "fs-readdir-recursive": "^1.0.0",
+    "mongodb": "^3.1.10"
   },
   "typings": "rivescript.d.ts"
 }
